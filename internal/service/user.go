@@ -1,93 +1,79 @@
 package service
 
 import (
+	"database/sql"
 	"errors"
-	"sync"
+
+	"github.com/Zmey56/go-kit-user-service/pkg/model"
 )
 
-// User represents the user's data model
-type User struct {
-	ID    int
-	Name  string
-	Email string
-	Age   int
-}
-
-// UserService define the interface for user operations
 type UserService interface {
-	CreateUser(name, email string, age int) (User, error)
-	GetUserByID(id int) (User, error)
-	UpdateUser(id int, name, email string, age int) (User, error)
+	CreateUser(name, email string, age int) (model.User, error)
+	GetUserByID(id int) (model.User, error)
+	UpdateUser(id int, name, email string, age int) (model.User, error)
 	DeleteUser(id int) error
+	FetchExternalData(endpoint string) (map[string]interface{}, error)
 }
 
 type userService struct {
-	users  map[int]User
-	mu     sync.Mutex
-	nextID int
+	db *sql.DB
 }
 
-// NewUserService creates a new instance of the UserService.
-func NewUserService() UserService {
-	return &userService{
-		users:  make(map[int]User),
-		nextID: 1,
-	}
+// NewUserService создает новый экземпляр UserService с подключением к базе данных.
+func NewUserService(db *sql.DB) UserService {
+	return &userService{db: db}
 }
 
-func (s *userService) CreateUser(name, email string, age int) (User, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (s *userService) FetchExternalData(endpoint string) (map[string]interface{}, error) {
+	externalService := NewExternalService("https://example.com/api")
+	return externalService.FetchData(endpoint)
+}
 
-	user := User{
-		ID:    s.nextID,
-		Name:  name,
-		Email: email,
-		Age:   age,
+// CreateUser добавляет нового пользователя в базу данных.
+func (s *userService) CreateUser(name, email string, age int) (model.User, error) {
+	var id int
+	err := s.db.QueryRow(
+		"INSERT INTO users (name, email, age) VALUES ($1, $2, $3) RETURNING id",
+		name, email, age,
+	).Scan(&id)
+	if err != nil {
+		return model.User{}, err
 	}
-	s.users[s.nextID] = user
-	s.nextID++
+	return model.User{ID: id, Name: name, Email: email, Age: age}, nil
+}
 
+// GetUserByID возвращает пользователя по его ID.
+func (s *userService) GetUserByID(id int) (model.User, error) {
+	var user model.User
+	err := s.db.QueryRow(
+		"SELECT id, name, email, age FROM users WHERE id = $1",
+		id,
+	).Scan(&user.ID, &user.Name, &user.Email, &user.Age)
+	if err == sql.ErrNoRows {
+		return model.User{}, errors.New("user not found")
+	} else if err != nil {
+		return model.User{}, err
+	}
 	return user, nil
 }
 
-func (s *userService) GetUserByID(id int) (User, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	user, exists := s.users[id]
-	if !exists {
-		return User{}, errors.New("user not found")
+// UpdateUser обновляет информацию о пользователе.
+func (s *userService) UpdateUser(id int, name, email string, age int) (model.User, error) {
+	_, err := s.db.Exec(
+		"UPDATE users SET name = $1, email = $2, age = $3 WHERE id = $4",
+		name, email, age, id,
+	)
+	if err != nil {
+		return model.User{}, err
 	}
-
-	return user, nil
+	return model.User{ID: id, Name: name, Email: email, Age: age}, nil
 }
 
-func (s *userService) UpdateUser(id int, name, email string, age int) (User, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	user, exists := s.users[id]
-	if !exists {
-		return User{}, errors.New("user not found")
-	}
-
-	user.Name = name
-	user.Email = email
-	user.Age = age
-	s.users[id] = user
-
-	return user, nil
-}
-
+// DeleteUser удаляет пользователя из базы данных.
 func (s *userService) DeleteUser(id int) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if _, exists := s.users[id]; !exists {
-		return errors.New("user not found")
+	_, err := s.db.Exec("DELETE FROM users WHERE id = $1", id)
+	if err != nil {
+		return err
 	}
-
-	delete(s.users, id)
 	return nil
 }

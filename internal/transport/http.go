@@ -39,6 +39,9 @@ func NewHTTPHandler(endpoints endpoint.Endpoints) http.Handler {
 		encodeResponse,
 	))
 
+	mux.Handle("/users/external", kitHttp.NewServer(
+		endpoints.UpdateUserEndpoint,)
+
 	return mux
 }
 

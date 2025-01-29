@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"log"
 	"net/http"
 	"os"
@@ -14,8 +15,19 @@ import (
 )
 
 func main() {
+	db, err := sql.Open("postgres", "postgres://user:password@localhost:5432/dbname?sslmode=disable")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func(db *sql.DB) {
+		err := db.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
+	}(db)
+
 	logger := kitLog.NewLogfmtLogger(os.Stdout)
-	svc := service.NewUserService()
+	svc := service.NewUserService(db)
 
 	endpoints := endpoint.Endpoints{
 		CreateUserEndpoint: middleware.LoggingMiddleware(logger)(endpoint.MakeCreateUserEndpoint(svc)),
